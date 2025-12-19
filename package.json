@@ -3,6 +3,11 @@
   "version": "1.0.0",
   "main": "server.js",
   "type": "module",
+  
+    "engines": {
+    "node": "18.x"
+  },
+
   "scripts": {
     "dev": "nodemon server.js"
   },
