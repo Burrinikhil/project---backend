@@ -306,7 +306,7 @@ app.get('/api/groups/:id/balances', (req, res) => {
 
 // DELETE /api/groups/:id  -> delete a group and its expenses
 // placed near other group routes
-app.delete('/api/groups/:id', (req, res) => {
+app.delete('/api/groups/:groupid/expenses/:expenses', (req, res) => {
   const id = Number(req.params.id);
   if (!Number.isInteger(id)) {
     return res.status(400).json({ message: 'Invalid group id' });
