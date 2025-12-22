@@ -217,6 +217,92 @@ app.post('/api/groups/:id/expenses', (req, res) => {
     }
   );
 });
+// GET /api/groups/:id/balances  -> smart split balances for this group
+app.get('/api/groups/:id/balances', (req, res) => {
+  const groupId = Number(req.params.id);
+  if (!Number.isInteger(groupId)) {
+    return res.status(400).json({ message: 'Invalid group id' });
+  }
+
+  // join expenses with users who paid
+  const sql = `
+    SELECT e.id,
+           e.amount,
+           e.paid_by,
+           u.name AS payer_name
+    FROM expenses e
+    JOIN users u ON e.paid_by = u.id
+    WHERE e.group_id = ?
+  `;
+
+  db.all(sql, [groupId], (err, rows) => {
+    if (err) {
+      console.error('Error fetching expenses for balances:', err.message);
+      return res.status(500).json({ message: 'Failed to compute balances' });
+    }
+    if (rows.length === 0) {
+      return res.json({ balances: [], settlements: [] });
+    }
+
+    // For now, assume all payers in this group share equally
+    const memberIds = [...new Set(rows.map(r => r.paid_by))];
+    const paidTotals = {};
+    const names = {};
+
+    memberIds.forEach(id => {
+      paidTotals[id] = 0;
+    });
+
+    rows.forEach(r => {
+      paidTotals[r.paid_by] += r.amount;
+      names[r.paid_by] = r.payer_name;
+    });
+
+    const total = rows.reduce((sum, r) => sum + r.amount, 0);
+    const equalShare = total / memberIds.length;
+
+    const balances = memberIds.map(id => ({
+      userId: id,
+      name: names[id],
+      paid: paidTotals[id],
+      share: equalShare,
+      net: +(paidTotals[id] - equalShare).toFixed(2),
+    }));
+
+    // build settlements (simple greedy)
+    const creditors = balances
+      .filter(b => b.net > 0)
+      .sort((a, b) => b.net - a.net);
+    const debtors = balances
+      .filter(b => b.net < 0)
+      .sort((a, b) => a.net - b.net);
+
+    const settlements = [];
+    let i = 0, j = 0;
+
+    while (i < debtors.length && j < creditors.length) {
+      const d = debtors[i];
+      const c = creditors[j];
+      const amount = Math.min(-d.net, c.net);
+
+      settlements.push({
+        fromId: d.userId,
+        from: d.name,
+        toId: c.userId,
+        to: c.name,
+        amount: +amount.toFixed(2),
+      });
+
+      d.net += amount;
+      c.net -= amount;
+
+      if (Math.abs(d.net) < 0.01) i++;
+      if (Math.abs(c.net) < 0.01) j++;
+    }
+
+    res.json({ balances, settlements });
+  });
+});
 
 // DELETE /api/groups/:id  -> delete a group and its expenses
 // placed near other group routes
