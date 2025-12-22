@@ -157,6 +157,70 @@ app.post('/api/groups', (req, res) => {
   });
 });
 
+//
+// === Expenses API ===
+// GET /api/groups/:id/expenses
+//
+app.get('/api/groups/:id/expenses', (req, res) => {
+  const groupId = Number(req.params.id);
+  if (!Number.isInteger(groupId)) {
+    return res.status(400).json({ message: 'Invalid group id' });
+  }
+
+  const sql =
+    'SELECT id, description, amount, category, created_at ' +
+    'FROM expenses WHERE group_id = ? ORDER BY created_at DESC';
+
+  db.all(sql, [groupId], (err, rows) => {
+    if (err) {
+      console.error('Error fetching expenses:', err.message);
+      return res.status(500).json({ message: 'Failed to load expenses' });
+    }
+    res.json(rows);
+  });
+});
+
+//
+// POST /api/groups/:id/expenses
+//
+app.post('/api/groups/:id/expenses', (req, res) => {
+  const groupId = Number(req.params.id);
+  const { description, amount, category } = req.body;
+
+  if (!Number.isInteger(groupId)) {
+    return res.status(400).json({ message: 'Invalid group id' });
+  }
+  if (!description || !description.trim() || !amount) {
+    return res
+      .status(400)
+      .json({ message: 'Description and amount are required' });
+  }
+
+  const sql =
+    'INSERT INTO expenses (group_id, description, amount, category) ' +
+    'VALUES (?, ?, ?, ?)';
+
+  db.run(
+    sql,
+    [groupId, description.trim(), Number(amount), category || 'other'],
+    function (err) {
+      if (err) {
+        console.error('Error creating expense:', err.message);
+        return res.status(500).json({ message: 'Failed to create expense' });
+      }
+
+      res.status(201).json({
+        id: this.lastID,
+        group_id: groupId,
+        description: description.trim(),
+        amount: Number(amount),
+        category: category || 'other',
+        created_at: new Date().toISOString(),
+      });
+    }
+  );
+});
+
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
