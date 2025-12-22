@@ -31,10 +31,8 @@ app.get('/', (req, res) => {
   res.send('Smart Expense Splitter API (SQLite) is running');
 });
 
-//
-// === Auth API ===
-// POST /api/auth/register
-//
+/* ========== AUTH ========== */
+
 app.post('/api/auth/register', (req, res) => {
   const { name, email, password } = req.body;
 
@@ -65,9 +63,6 @@ app.post('/api/auth/register', (req, res) => {
   );
 });
 
-//
-// POST /api/auth/login
-//
 app.post('/api/auth/login', (req, res) => {
   const { email, password } = req.body;
 
@@ -95,10 +90,8 @@ app.post('/api/auth/login', (req, res) => {
   });
 });
 
-//
-// === Groups API ===
-// GET /api/groups
-//
+/* ========== GROUPS ========== */
+
 app.get('/api/groups', (req, res) => {
   const sql = 'SELECT id, name, type FROM groups ORDER BY id DESC';
   db.all(sql, [], (err, rows) => {
@@ -110,9 +103,6 @@ app.get('/api/groups', (req, res) => {
   });
 });
 
-//
-// GET /api/groups/:id
-//
 app.get('/api/groups/:id', (req, res) => {
   const id = Number(req.params.id);
   if (!Number.isInteger(id)) {
@@ -132,9 +122,6 @@ app.get('/api/groups/:id', (req, res) => {
   });
 });
 
-//
-// POST /api/groups
-//
 app.post('/api/groups', (req, res) => {
   const { name, type } = req.body;
 
@@ -157,10 +144,8 @@ app.post('/api/groups', (req, res) => {
   });
 });
 
-//
-// === Expenses API ===
+/* ========== EXPENSES BY GROUP ========== */
 
-// GET /api/groups/:id/expenses
 app.get('/api/groups/:id/expenses', (req, res) => {
   const groupId = Number(req.params.id);
   if (!Number.isInteger(groupId)) {
@@ -180,7 +165,6 @@ app.get('/api/groups/:id/expenses', (req, res) => {
   });
 });
 
-// POST /api/groups/:id/expenses
 app.post('/api/groups/:id/expenses', (req, res) => {
   const groupId = Number(req.params.id);
   const { description, amount, category, paidBy } = req.body;
@@ -234,7 +218,6 @@ app.post('/api/groups/:id/expenses', (req, res) => {
   );
 });
 
-// DELETE /api/groups/:groupId/expenses/:expenseId
 app.delete('/api/groups/:groupId/expenses/:expenseId', (req, res) => {
   const expenseId = Number(req.params.expenseId);
 
@@ -253,6 +236,62 @@ app.delete('/api/groups/:groupId/expenses/:expenseId', (req, res) => {
       return res.status(404).json({ message: 'Expense not found' });
     }
     res.json({ success: true });
+  });
+});
+
+/* ========== DASHBOARD: RECENT + ACTIVITY ========== */
+
+// Last 5 expenses across all groups
+app.get('/api/recent-expenses', (req, res) => {
+  const sql = `
+    SELECT e.id,
+           e.description,
+           e.amount,
+           e.date,
+           e.category,
+           g.id   AS group_id,
+           g.name AS group_name
+    FROM expenses e
+    JOIN groups g ON e.group_id = g.id
+    ORDER BY e.date DESC
+    LIMIT 5
+  `;
+  db.all(sql, [], (err, rows) => {
+    if (err) {
+      console.error('Error fetching recent expenses:', err.message);
+      return res.status(500).json({ message: 'Failed to load recent expenses' });
+    }
+    res.json(rows);
+  });
+});
+
+// Simple activity feed: one item per expense
+app.get('/api/activity', (req, res) => {
+  const sql = `
+    SELECT e.id,
+           e.description,
+           e.amount,
+           e.date,
+           g.id   AS group_id,
+           g.name AS group_name
+    FROM expenses e
+    JOIN groups g ON e.group_id = g.id
+    ORDER BY e.date DESC
+    LIMIT 5
+  `;
+  db.all(sql, [], (err, rows) => {
+    if (err) {
+      console.error('Error fetching activity:', err.message);
+      return res.status(500).json({ message: 'Failed to load activity' });
+    }
+    const activity = rows.map((r) => ({
+      id: r.id,
+      text: `${r.description} in ${r.group_name}`,
+      amount: r.amount,
+      date: r.date,
+      groupId: r.group_id,
+    }));
+    res.json(activity);
   });
 });
 
