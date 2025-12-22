@@ -218,24 +218,32 @@ app.post('/api/groups/:id/expenses', (req, res) => {
   );
 });
 
-app.delete('/api/groups/:groupId/expenses/:expenseId', (req, res) => {
-  const expenseId = Number(req.params.expenseId);
-
-  if (!Number.isInteger(expenseId)) {
-    return res.status(400).json({ message: 'Invalid expense id' });
+// DELETE /api/groups/:id  -> delete a group and its expenses
+// placed near other group routes
+app.delete('/api/groups/:id', (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) {
+    return res.status(400).json({ message: 'Invalid group id' });
   }
 
-  const sql = 'DELETE FROM expenses WHERE id = ?';
-
-  db.run(sql, [expenseId], function (err) {
+  const deleteExpensesSql = 'DELETE FROM expenses WHERE group_id = ?';
+  db.run(deleteExpensesSql, [id], function (err) {
     if (err) {
-      console.error('Error deleting expense:', err.message);
-      return res.status(500).json({ message: 'Failed to delete expense' });
+      console.error('Error deleting group expenses:', err.message);
+      return res.status(500).json({ message: 'Failed to delete group expenses' });
     }
-    if (this.changes === 0) {
-      return res.status(404).json({ message: 'Expense not found' });
-    }
-    res.json({ success: true });
+
+    const deleteGroupSql = 'DELETE FROM groups WHERE id = ?';
+    db.run(deleteGroupSql, [id], function (err2) {
+      if (err2) {
+        console.error('Error deleting group:', err2.message);
+        return res.status(500).json({ message: 'Failed to delete group' });
+      }
+      if (this.changes === 0) {
+        return res.status(404).json({ message: 'Group not found' });
+      }
+      res.json({ success: true });
+    });
   });
 });
 
