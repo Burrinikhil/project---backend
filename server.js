@@ -4,12 +4,11 @@ const sqlite3 = require('sqlite3');
 const path = require('path');
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 10000;
 
 app.use(cors());
 app.use(express.json());
 
-// adjust file name if your DB is different
 const dbPath = path.join(__dirname, 'smart_expense.db');
 
 const db = new sqlite3.Database(dbPath, (err) => {
@@ -20,12 +19,44 @@ const db = new sqlite3.Database(dbPath, (err) => {
   }
 });
 
-// root route for frontend test
 app.get('/', (req, res) => {
   res.send('Smart Expense Splitter API (SQLite) is running');
 });
 
-// TODO: keep/add your other API routes here
+// GET /api/groups
+app.get('/api/groups', (req, res) => {
+  const sql = 'SELECT id, name, type FROM groups ORDER BY id DESC';
+  db.all(sql, [], (err, rows) => {
+    if (err) {
+      console.error('Error fetching groups:', err.message);
+      return res.status(500).json({ message: 'Failed to load groups' });
+    }
+    res.json(rows);
+  });
+});
+
+// POST /api/groups
+app.post('/api/groups', (req, res) => {
+  const { name, type } = req.body;
+
+  if (!name || !name.trim()) {
+    return res.status(400).json({ message: 'Group name is required' });
+  }
+
+  const sql = 'INSERT INTO groups (name, type) VALUES (?, ?)';
+  db.run(sql, [name.trim(), type || 'other'], function (err) {
+    if (err) {
+      console.error('Error creating group:', err.message);
+      return res.status(500).json({ message: 'Failed to create group' });
+    }
+
+    res.status(201).json({
+      id: this.lastID,
+      name: name.trim(),
+      type: type || 'other',
+    });
+  });
+});
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
