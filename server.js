@@ -181,7 +181,6 @@ app.get('/api/groups/:id/expenses', (req, res) => {
 });
 
 // POST /api/groups/:id/expenses
-// POST /api/groups/:id/expenses
 app.post('/api/groups/:id/expenses', (req, res) => {
   const groupId = Number(req.params.id);
   const { description, amount, category, paidBy } = req.body;
@@ -235,6 +234,27 @@ app.post('/api/groups/:id/expenses', (req, res) => {
   );
 });
 
+// DELETE /api/groups/:groupId/expenses/:expenseId
+app.delete('/api/groups/:groupId/expenses/:expenseId', (req, res) => {
+  const expenseId = Number(req.params.expenseId);
+
+  if (!Number.isInteger(expenseId)) {
+    return res.status(400).json({ message: 'Invalid expense id' });
+  }
+
+  const sql = 'DELETE FROM expenses WHERE id = ?';
+
+  db.run(sql, [expenseId], function (err) {
+    if (err) {
+      console.error('Error deleting expense:', err.message);
+      return res.status(500).json({ message: 'Failed to delete expense' });
+    }
+    if (this.changes === 0) {
+      return res.status(404).json({ message: 'Expense not found' });
+    }
+    res.json({ success: true });
+  });
+});
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
