@@ -159,8 +159,8 @@ app.post('/api/groups', (req, res) => {
 
 //
 // === Expenses API ===
+
 // GET /api/groups/:id/expenses
-//
 app.get('/api/groups/:id/expenses', (req, res) => {
   const groupId = Number(req.params.id);
   if (!Number.isInteger(groupId)) {
@@ -168,8 +168,8 @@ app.get('/api/groups/:id/expenses', (req, res) => {
   }
 
   const sql =
-    'SELECT id, description, amount, category, created_at ' +
-    'FROM expenses WHERE group_id = ? ORDER BY created_at DESC';
+    'SELECT id, description, amount, category, date ' +
+    'FROM expenses WHERE group_id = ? ORDER BY date DESC';
 
   db.all(sql, [groupId], (err, rows) => {
     if (err) {
@@ -180,9 +180,7 @@ app.get('/api/groups/:id/expenses', (req, res) => {
   });
 });
 
-//
 // POST /api/groups/:id/expenses
-//
 app.post('/api/groups/:id/expenses', (req, res) => {
   const groupId = Number(req.params.id);
   const { description, amount, category } = req.body;
@@ -196,13 +194,15 @@ app.post('/api/groups/:id/expenses', (req, res) => {
       .json({ message: 'Description and amount are required' });
   }
 
+  const now = new Date().toISOString();
+
   const sql =
-    'INSERT INTO expenses (group_id, description, amount, category) ' +
-    'VALUES (?, ?, ?, ?)';
+    'INSERT INTO expenses (group_id, description, amount, category, date) ' +
+    'VALUES (?, ?, ?, ?, ?)';
 
   db.run(
     sql,
-    [groupId, description.trim(), Number(amount), category || 'other'],
+    [groupId, description.trim(), Number(amount), category || 'other', now],
     function (err) {
       if (err) {
         console.error('Error creating expense:', err.message);
@@ -215,7 +215,7 @@ app.post('/api/groups/:id/expenses', (req, res) => {
         description: description.trim(),
         amount: Number(amount),
         category: category || 'other',
-        created_at: new Date().toISOString(),
+        date: now,
       });
     }
   );
