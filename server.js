@@ -181,9 +181,10 @@ app.get('/api/groups/:id/expenses', (req, res) => {
 });
 
 // POST /api/groups/:id/expenses
+// POST /api/groups/:id/expenses
 app.post('/api/groups/:id/expenses', (req, res) => {
   const groupId = Number(req.params.id);
-  const { description, amount, category } = req.body;
+  const { description, amount, category, paidBy } = req.body;
 
   if (!Number.isInteger(groupId)) {
     return res.status(400).json({ message: 'Invalid group id' });
@@ -193,16 +194,27 @@ app.post('/api/groups/:id/expenses', (req, res) => {
       .status(400)
       .json({ message: 'Description and amount are required' });
   }
+  if (!paidBy) {
+    return res.status(400).json({ message: 'paidBy (user id) is required' });
+  }
 
   const now = new Date().toISOString();
 
   const sql =
-    'INSERT INTO expenses (group_id, description, amount, category, date) ' +
-    'VALUES (?, ?, ?, ?, ?)';
+    'INSERT INTO expenses (group_id, paid_by, description, amount, category, date, split_type) ' +
+    'VALUES (?, ?, ?, ?, ?, ?, ?)';
 
   db.run(
     sql,
-    [groupId, description.trim(), Number(amount), category || 'other', now],
+    [
+      groupId,
+      paidBy,
+      description.trim(),
+      Number(amount),
+      category || 'other',
+      now,
+      'equal',
+    ],
     function (err) {
       if (err) {
         console.error('Error creating expense:', err.message);
@@ -212,14 +224,17 @@ app.post('/api/groups/:id/expenses', (req, res) => {
       res.status(201).json({
         id: this.lastID,
         group_id: groupId,
+        paid_by: paidBy,
         description: description.trim(),
         amount: Number(amount),
         category: category || 'other',
         date: now,
+        split_type: 'equal',
       });
     }
   );
 });
+
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
