@@ -165,9 +165,10 @@ app.get('/api/groups/:id/expenses', (req, res) => {
   });
 });
 
+// POST /api/groups/:id/expenses  (smart split)
 app.post('/api/groups/:id/expenses', (req, res) => {
   const groupId = Number(req.params.id);
-  const { description, amount, category, paidBy } = req.body;
+  const { description, amount, category, splits } = req.body;
 
   if (!Number.isInteger(groupId)) {
     return res.status(400).json({ message: 'Invalid group id' });
@@ -177,46 +178,103 @@ app.post('/api/groups/:id/expenses', (req, res) => {
       .status(400)
       .json({ message: 'Description and amount are required' });
   }
-  if (!paidBy) {
-    return res.status(400).json({ message: 'paidBy (user id) is required' });
+
+  if (!Array.isArray(splits) || splits.length === 0) {
+    return res
+      .status(400)
+      .json({ message: 'At least one participant required' });
   }
 
-  const now = new Date().toISOString();
+  const totalAmount = Number(amount);
+  let computedSplits = splits.map((s) => ({ ...s }));
+  const mode = splits[0].mode || 'equal';
 
-  const sql =
-    'INSERT INTO expenses (group_id, paid_by, description, amount, category, date, split_type) ' +
-    'VALUES (?, ?, ?, ?, ?, ?, ?)';
+  if (mode === 'equal') {
+    const share = totalAmount / splits.length;
+    computedSplits = splits.map((s) => ({
+      ...s,
+      mode: 'equal',
+      amount: share,
+      percent: null,
+    }));
+  } else if (mode === 'percent') {
+    const sumPercent = splits.reduce(
+      (sum, s) => sum + Number(s.percent || 0),
+      0
+    );
+    if (Math.round(sumPercent) !== 100) {
+      return res
+        .status(400)
+        .json({ message: 'Percent splits must sum to 100' });
+    }
+    computedSplits = splits.map((s) => ({
+      ...s,
+      mode: 'percent',
+      amount: (totalAmount * Number(s.percent)) / 100,
+    }));
+  } else if (mode === 'custom') {
+    const sumAmount = splits.reduce(
+      (sum, s) => sum + Number(s.amount || 0),
+      0
+    );
+    if (Math.round(sumAmount * 100) !== Math.round(totalAmount * 100)) {
+      return res
+        .status(400)
+        .json({ message: 'Custom amounts must sum to total amount' });
+    }
+  } else {
+    return res.status(400).json({ message: 'Invalid split mode' });
+  }
+
+  const insertExpenseSql =
+    'INSERT INTO expenses (group_id, description, amount, category) VALUES (?, ?, ?, ?)';
 
   db.run(
-    sql,
-    [
-      groupId,
-      paidBy,
-      description.trim(),
-      Number(amount),
-      category || 'other',
-      now,
-      'equal',
-    ],
+    insertExpenseSql,
+    [groupId, description.trim(), totalAmount, category || 'other'],
     function (err) {
       if (err) {
         console.error('Error creating expense:', err.message);
         return res.status(500).json({ message: 'Failed to create expense' });
       }
 
-      res.status(201).json({
-        id: this.lastID,
-        group_id: groupId,
-        paid_by: paidBy,
-        description: description.trim(),
-        amount: Number(amount),
-        category: category || 'other',
-        date: now,
-        split_type: 'equal',
+      const expenseId = this.lastID;
+
+      const insertSplitSql =
+        'INSERT INTO expense_splits (expense_id, member_name, mode, percent, amount) ' +
+        'VALUES (?, ?, ?, ?, ?)';
+
+      const stmt = db.prepare(insertSplitSql);
+      for (const s of computedSplits) {
+        stmt.run([
+          expenseId,
+          s.member_name,
+          s.mode,
+          s.percent != null ? Number(s.percent) : null,
+          Number(s.amount),
+        ]);
+      }
+      stmt.finalize((splitErr) => {
+        if (splitErr) {
+          console.error('Error inserting splits:', splitErr.message);
+          return res
+            .status(500)
+            .json({ message: 'Failed to save splits' });
+        }
+
+        res.status(201).json({
+          id: expenseId,
+          group_id: groupId,
+          description: description.trim(),
+          amount: totalAmount,
+          category: category || 'other',
+          splits: computedSplits,
+        });
       });
     }
   );
 });
+
 // GET /api/groups/:id/balances  -> smart split balances for this group
 app.get('/api/groups/:id/balances', (req, res) => {
   const groupId = Number(req.params.id);
@@ -305,33 +363,31 @@ app.get('/api/groups/:id/balances', (req, res) => {
 });
 
 // DELETE /api/groups/:id  -> delete a group and its expenses
-// placed near other group routes
-app.delete('/api/groups/:groupId/expenses/:expenseId', (req, res) => {
-  const id = Number(req.params.id);
-  if (!Number.isInteger(id)) {
-    return res.status(400).json({ message: 'Invalid group id' });
+// placed near other group rout
+ app.delete('/api/groups/:groupId/expenses/:expenseId', (req, res) => {
+  const groupId = parseInt(req.params.groupId, 10);
+  const expenseId = parseInt(req.params.expenseId, 10);
+
+  if (!Number.isInteger(groupId) || groupId <= 0) {
+    return res.status(400).json({ message: 'Invalid groupId' });
+  }
+  if (!Number.isInteger(expenseId) || expenseId <= 0) {
+    return res.status(400).json({ message: 'Invalid expenseId' });
   }
 
-  const deleteExpensesSql = 'DELETE FROM expenses WHERE group_id = ?';
-  db.run(deleteExpensesSql, [id], function (err) {
-    if (err) {
-      console.error('Error deleting group expenses:', err.message);
-      return res.status(500).json({ message: 'Failed to delete group expenses' });
-    }
+  const verifySql = 'SELECT id FROM expenses WHERE id = ? AND group_id = ?';
+  db.get(verifySql, [expenseId, groupId], (err, row) => {
+    if (err) return res.status(500).json({ message: 'Database error' });
+    if (!row) return res.status(404).json({ message: 'Expense not found' });
 
-    const deleteGroupSql = 'DELETE FROM groups WHERE id = ?';
-    db.run(deleteGroupSql, [id], function (err2) {
-      if (err2) {
-        console.error('Error deleting group:', err2.message);
-        return res.status(500).json({ message: 'Failed to delete group' });
-      }
-      if (this.changes === 0) {
-        return res.status(404).json({ message: 'Group not found' });
-      }
-      res.json({ success: true });
+    const deleteSql = 'DELETE FROM expenses WHERE id = ?';
+    db.run(deleteSql, [expenseId], function (err) {
+      if (err) return res.status(500).json({ message: 'Failed to delete expense' });
+      return res.json({ success: true, deletedId: expenseId });
     });
   });
 });
+
 
 /* ========== DASHBOARD: RECENT + ACTIVITY ========== */
 
